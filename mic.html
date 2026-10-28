@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ur">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ERSS Voice Typing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600&family=Noto+Nastaliq+Urdu:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#F7F3ED;--panel:#fff;--ink:#2A1F18;--muted:#7a6a5d;--line:#e6dccf;--accent:#4A2E1F;--gold:#FFC72A;--red:#b42318;
+    --f-sans:"Rubik",system-ui,sans-serif;--f-urdu:"Jameel Noori Nastaleeq","Noto Nastaliq Urdu",serif}
+  @media (prefers-color-scheme:dark){:root{--bg:#17120F;--panel:#211a15;--ink:#F1E9DF;--muted:#b9a99a;--line:#3a2f27;--accent:#FFC72A}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-sans);min-height:100vh;display:flex;justify-content:center;padding:16px}
+  main{width:100%;max-width:460px;display:flex;flex-direction:column;gap:14px}
+  [lang=ur],.ur{font-family:var(--f-urdu);line-height:2}
+  h1{font-size:1.15rem;margin:0;display:flex;align-items:center;gap:8px}
+  .lang{display:flex;gap:8px}
+  .lang button{flex:1;padding:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:10px;font:inherit;cursor:pointer}
+  .lang button[aria-pressed=true]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);font-weight:600}
+  .micwrap{display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 0}
+  #mic{width:96px;height:96px;border-radius:50%;border:0;background:var(--accent);color:#fff;cursor:pointer;display:grid;place-items:center}
+  #mic svg{width:40px;height:40px}
+  #mic.on{background:var(--red);animation:p 1.2s ease-in-out infinite}
+  @keyframes p{50%{box-shadow:0 0 0 14px rgba(180,35,24,.15)}}
+  @media (prefers-reduced-motion:reduce){#mic.on{animation:none}}
+  #status{color:var(--muted);text-align:center;min-height:2em}
+  textarea{width:100%;min-height:150px;border:1px solid var(--line);border-radius:10px;padding:10px;font:inherit;font-size:1.05rem;background:var(--panel);color:var(--ink);resize:vertical}
+  textarea[dir=rtl]{font-family:var(--f-urdu);line-height:2}
+  .row{display:flex;gap:8px;flex-wrap:wrap}
+  .btn{padding:11px 16px;border-radius:10px;border:1px solid var(--accent);background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer;flex:1}
+  .btn.ghost{background:transparent;color:var(--ink);border-color:var(--line);font-weight:500}
+  .btn:disabled{opacity:.5;cursor:default}
+  .note{font-size:.85rem;color:var(--muted)}
+  .err{color:var(--red)}
+</style>
+</head>
+<body>
+<main>
+  <h1><span aria-hidden="true">🎤</span> <span id="t-title"></span></h1>
+  <div class="lang" role="group" aria-label="Language">
+    <button type="button" data-l="ur" class="ur">اردو میں بولیں</button>
+    <button type="button" data-l="en">Speak English</button>
+  </div>
+  <div class="micwrap">
+    <button type="button" id="mic" aria-label="Microphone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3zM19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg></button>
+    <div id="status" aria-live="polite"></div>
+  </div>
+  <textarea id="text" dir="auto" aria-label="Text"></textarea>
+  <div class="row">
+    <button type="button" class="btn" id="send"></button>
+    <button type="button" class="btn ghost" id="copy"></button>
+    <button type="button" class="btn ghost" id="clear"></button>
+  </div>
+  <p class="note" id="t-note"></p>
+</main>
+<script>
+(function () {
+  var q = new URLSearchParams(location.search);
+  var ui = q.get('ui') === 'en' ? 'en' : 'ur';
+  var lang = q.get('lang') === 'en' ? 'en' : 'ur';
+  var target = q.get('id') || '';
+  var back = q.get('o') || '';
+  var T = {
+    en: { title: 'Voice typing', start: 'Press the mic and speak.', listening: 'Listening… speak now. Press the mic again to stop.',
+      stopped: 'Stopped. Check the text, then press “Put in my form”.', send: 'Put in my form', copy: 'Copy', clear: 'Clear',
+      copied: 'Copied. Paste it into the form.', blocked: 'Microphone is blocked. Click the lock icon in the address bar, allow the microphone, and press the mic again.',
+      nosupport: 'Voice typing works in Google Chrome or Microsoft Edge.', nospeech: 'No voice heard. Press the mic and speak again.',
+      fail: 'Voice typing stopped. Press the mic to try again.', noopener: 'The form window was closed. Press Copy and paste the text yourself.',
+      note: 'Your voice is turned into text by the browser (Google). Nothing is saved on this page.' },
+    ur: { title: 'بول کر لکھیں', start: 'مائیک دبا کر بولیں۔', listening: 'سن رہا ہے… اب بولیں۔ روکنے کے لیے مائیک دوبارہ دبائیں۔',
+      stopped: 'رک گیا۔ تحریر دیکھ لیں، پھر “فارم میں ڈالیں” دبائیں۔', send: 'فارم میں ڈالیں', copy: 'کاپی', clear: 'صاف کریں',
+      copied: 'کاپی ہو گیا۔ فارم میں پیسٹ کریں۔', blocked: 'مائیک کی اجازت نہیں۔ اوپر ایڈریس بار میں تالے کے نشان پر کلک کریں، مائیک کی اجازت دیں اور دوبارہ دبائیں۔',
+      nosupport: 'آواز سے لکھنا گوگل کروم یا مائیکروسافٹ ایج میں چلتا ہے۔', nospeech: 'آواز نہیں آئی۔ مائیک دبا کر دوبارہ بولیں۔',
+      fail: 'آواز سے لکھنا رک گیا۔ دوبارہ مائیک دبائیں۔', noopener: 'فارم والی ونڈو بند ہو گئی۔ کاپی دبا کر خود پیسٹ کریں۔',
+      note: 'آپ کی آواز براؤزر (گوگل) تحریر میں بدلتا ہے۔ اس صفحے پر کچھ محفوظ نہیں ہوتا۔' }
+  };
+  var t = function (k) { return T[ui][k]; };
+  var $ = function (id) { return document.getElementById(id); };
+  var box = $('text'), st = $('status'), mic = $('mic');
+  document.documentElement.lang = ui; document.documentElement.dir = ui === 'ur' ? 'rtl' : 'ltr';
+  if (ui === 'ur') document.body.classList.add('ur');
+  $('t-title').textContent = t('title'); $('send').textContent = t('send'); $('copy').textContent = t('copy');
+  $('clear').textContent = t('clear'); $('t-note').textContent = t('note');
+  var say = function (k, err) { st.textContent = t(k); st.className = err ? 'err' : ''; };
+  var fixDir = function () { box.dir = /[؀-ۿ]/.test(box.value) && !/[A-Za-z]{3}/.test(box.value) ? 'rtl' : 'auto'; };
+
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition, rec = null, on = false, errCode = '';
+  function setLang(l) { lang = l; document.querySelectorAll('.lang button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.l === l ? 'true' : 'false'); }); }
+  function stop() { if (rec) try { rec.stop(); } catch (e) {} }
+  function start() {
+    if (!SR) { say('nosupport', true); return; }
+    if (on) { stop(); return; }
+    errCode = '';
+    rec = new SR(); rec.lang = lang === 'ur' ? 'ur-PK' : 'en-US'; rec.continuous = true; rec.interimResults = true;
+    var base = box.value;
+    rec.onresult = function (e) {
+      var fin = '', tmp = '';
+      for (var i = e.resultIndex; i < e.results.length; i++) { var r = e.results[i]; if (r.isFinal) fin += r[0].transcript + ' '; else tmp += r[0].transcript; }
+      if (fin.trim()) { base = (base && !/\s$/.test(base) ? base + ' ' : base) + fin.trim(); }
+      box.value = base + (tmp ? ' ' + tmp : ''); fixDir();
+    };
+    rec.onerror = function (e) { errCode = e.error || 'x'; };
+    rec.onend = function () {
+      on = false; mic.classList.remove('on'); box.value = base; fixDir();
+      if (errCode === 'not-allowed' || errCode === 'service-not-allowed' || errCode === 'audio-capture') say('blocked', true);
+      else if (errCode === 'no-speech') say('nospeech', true);
+      else if (errCode && errCode !== 'aborted') say('fail', true);
+      else say('stopped');
+    };
+    try { rec.start(); on = true; mic.classList.add('on'); say('listening'); } catch (e) { say('fail', true); }
+  }
+  document.querySelectorAll('.lang button').forEach(function (b) { b.addEventListener('click', function () { var was = on; stop(); setLang(b.dataset.l); if (was) setTimeout(start, 300); }); });
+  mic.addEventListener('click', start);
+  $('clear').addEventListener('click', function () { box.value = ''; fixDir(); });
+  $('copy').addEventListener('click', function () {
+    box.select();
+    var done = function () { say('copied'); };
+    if (navigator.clipboard) navigator.clipboard.writeText(box.value).then(done, function () { try { document.execCommand('copy'); done(); } catch (e) {} });
+    else { try { document.execCommand('copy'); done(); } catch (e) {} }
+  });
+  $('send').addEventListener('click', function () {
+    stop();
+    var text = box.value.trim(); if (!text) { say('start'); return; }
+    if (!window.opener || window.opener.closed || !back) { say('noopener', true); return; }
+    try { window.opener.postMessage({ erssMic: 1, id: target, lang: lang, text: text }, back); window.close(); }
+    catch (e) { say('noopener', true); }
+  });
+  setLang(lang); say('start');
+  if (SR) start(); else say('nosupport', true);
+})();
+</script>
+</body>
+</html>
