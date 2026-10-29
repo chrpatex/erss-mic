@@ -114,17 +114,28 @@
     errCode = '';
     rec = new SR(); rec.lang = lang === 'ur' ? 'ur-PK' : 'en-US'; rec.continuous = true; rec.interimResults = true;
     var base = box.value;
+    /* Rebuild this session's text from ALL results every time. Android Chrome re-sends the growing sentence
+       ("A", "A B", "A B C") as separate results, so a piece that starts with the previous one replaces it. */
+    var sess = '';
+    var norm = function (x) { return String(x || '').replace(/\s+/g, ' ').trim(); };
+    var join = function (a, b) { a = String(a || ''); b = norm(b); if (!b) return a; return a && !/\s$/.test(a) ? a + ' ' + b : a + b; };
     rec.onresult = function (e) {
-      var fin = '', tmp = '';
-      for (var i = e.resultIndex; i < e.results.length; i++) { var r = e.results[i]; if (r.isFinal) fin += r[0].transcript + ' '; else tmp += r[0].transcript; }
-      if (fin.trim()) { base = (base && !/\s$/.test(base) ? base + ' ' : base) + fin.trim(); }
-      box.value = base + (tmp ? ' ' + tmp : ''); fixDir();
+      var parts = [];
+      for (var i = 0; i < e.results.length; i++) {
+        var tx = norm(e.results[i][0].transcript); if (!tx) continue;
+        var prev = parts.length ? parts[parts.length - 1] : '';
+        if (prev && tx.indexOf(prev) === 0) parts[parts.length - 1] = tx;
+        else if (prev && prev.indexOf(tx) === 0) continue;
+        else parts.push(tx);
+      }
+      sess = parts.join(' ');
+      box.value = join(base, sess); fixDir();
     };
     rec.onerror = function (e) { errCode = e.error || 'x'; diag('error: ' + errCode); };
     rec.onaudiostart = function () { diag('hearing audio'); };
     rec.onstart = function () { diag('started ' + rec.lang); };
     rec.onend = function () {
-      on = false; mic.classList.remove('on'); box.value = base; fixDir();
+      on = false; mic.classList.remove('on'); box.value = join(base, sess); fixDir();
       if (errCode === 'not-allowed' || errCode === 'service-not-allowed' || errCode === 'audio-capture') say('blocked', true);
       else if (errCode === 'no-speech') say('nospeech', true);
       else if (errCode && errCode !== 'aborted') say('fail', true);
