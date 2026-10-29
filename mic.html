@@ -53,6 +53,7 @@
     <button type="button" class="btn ghost" id="clear"></button>
   </div>
   <p class="note" id="t-note"></p>
+  <p class="note" id="diag" style="font-size:.75rem;opacity:.8;direction:ltr;text-align:left"></p>
 </main>
 <script>
 (function () {
@@ -61,18 +62,23 @@
   var lang = q.get('lang') === 'en' ? 'en' : 'ur';
   var target = q.get('id') || '';
   var back = q.get('o') || '';
+  var key = /^[a-f0-9]{32}$/.test(q.get('k') || '') ? q.get('k') : '';
+  var relay = q.get('s') || '';
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/(exec|dev)$/.test(relay)) relay = '';
   var T = {
     en: { title: 'Voice typing', start: 'Press the mic and speak.', listening: 'Listening… speak now. Press the mic again to stop.',
       stopped: 'Stopped. Check the text, then press “Put in my form”.', send: 'Put in my form', copy: 'Copy', clear: 'Clear',
       copied: 'Copied. Paste it into the form.', blocked: 'Microphone is blocked. Click the lock icon in the address bar, allow the microphone, and press the mic again.',
       nosupport: 'Voice typing works in Google Chrome or Microsoft Edge.', nospeech: 'No voice heard. Press the mic and speak again.',
       fail: 'Voice typing stopped. Press the mic to try again.', noopener: 'The form window was closed. Press Copy and paste the text yourself.',
-      note: 'Your voice is turned into text by the browser (Google). Nothing is saved on this page.' },
+      note: 'Your voice is turned into text by the browser (Google). Nothing is saved on this page.',
+      sending: 'Sending to your form…', sent: 'Done. The text is now in your form. You can close this window.', sendfail: 'Could not send. Press Copy and paste the text into the form yourself.' },
     ur: { title: 'بول کر لکھیں', start: 'مائیک دبا کر بولیں۔', listening: 'سن رہا ہے… اب بولیں۔ روکنے کے لیے مائیک دوبارہ دبائیں۔',
       stopped: 'رک گیا۔ تحریر دیکھ لیں، پھر “فارم میں ڈالیں” دبائیں۔', send: 'فارم میں ڈالیں', copy: 'کاپی', clear: 'صاف کریں',
       copied: 'کاپی ہو گیا۔ فارم میں پیسٹ کریں۔', blocked: 'مائیک کی اجازت نہیں۔ اوپر ایڈریس بار میں تالے کے نشان پر کلک کریں، مائیک کی اجازت دیں اور دوبارہ دبائیں۔',
       nosupport: 'آواز سے لکھنا گوگل کروم یا مائیکروسافٹ ایج میں چلتا ہے۔', nospeech: 'آواز نہیں آئی۔ مائیک دبا کر دوبارہ بولیں۔',
       fail: 'آواز سے لکھنا رک گیا۔ دوبارہ مائیک دبائیں۔', noopener: 'فارم والی ونڈو بند ہو گئی۔ کاپی دبا کر خود پیسٹ کریں۔',
+      sending: 'فارم میں بھیج رہے ہیں…', sent: 'ہو گیا۔ تحریر آپ کے فارم میں آ گئی ہے۔ یہ ونڈو بند کر دیں۔', sendfail: 'بھیجا نہیں جا سکا۔ کاپی دبا کر خود فارم میں پیسٹ کریں۔',
       note: 'آپ کی آواز براؤزر (گوگل) تحریر میں بدلتا ہے۔ اس صفحے پر کچھ محفوظ نہیں ہوتا۔' }
   };
   var t = function (k) { return T[ui][k]; };
@@ -88,9 +94,23 @@
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition, rec = null, on = false, errCode = '';
   function setLang(l) { lang = l; document.querySelectorAll('.lang button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.l === l ? 'true' : 'false'); }); }
   function stop() { if (rec) try { rec.stop(); } catch (e) {} }
+  var D = { last: '' };
+  function diag(x) { if (x) D.last = x; var ua = navigator.userAgent, b = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Other';
+    $('diag').textContent = [b, SR ? 'speech:yes' : 'speech:NO', window.isSecureContext ? 'secure' : 'NOT-secure', (window.origin === 'null' ? 'sandboxed' : 'normal'), D.perm ? 'mic:' + D.perm : '', D.last].filter(Boolean).join(' \u00b7 '); }
+  try { navigator.permissions.query({ name: 'microphone' }).then(function (p) { D.perm = p.state; diag(); p.onchange = function () { D.perm = p.state; diag(); }; }).catch(function () {}); } catch (e) {}
   function start() {
-    if (!SR) { say('nosupport', true); return; }
+    if (!SR) { say('nosupport', true); diag('no SpeechRecognition'); return; }
     if (on) { stop(); return; }
+    if (window.origin === 'null') { say('blocked', true); diag('window is sandboxed'); return; }
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia && !D.ok) {
+      say('listening'); diag('asking for microphone');
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (st) { st.getTracks().forEach(function (t) { t.stop(); }); D.ok = true; diag('microphone allowed'); start(); })
+        .catch(function (e) { say('blocked', true); diag('getUserMedia: ' + (e && e.name || e)); });
+      return;
+    }
+    return listen();
+  }
+  function listen() {
     errCode = '';
     rec = new SR(); rec.lang = lang === 'ur' ? 'ur-PK' : 'en-US'; rec.continuous = true; rec.interimResults = true;
     var base = box.value;
@@ -100,7 +120,9 @@
       if (fin.trim()) { base = (base && !/\s$/.test(base) ? base + ' ' : base) + fin.trim(); }
       box.value = base + (tmp ? ' ' + tmp : ''); fixDir();
     };
-    rec.onerror = function (e) { errCode = e.error || 'x'; };
+    rec.onerror = function (e) { errCode = e.error || 'x'; diag('error: ' + errCode); };
+    rec.onaudiostart = function () { diag('hearing audio'); };
+    rec.onstart = function () { diag('started ' + rec.lang); };
     rec.onend = function () {
       on = false; mic.classList.remove('on'); box.value = base; fixDir();
       if (errCode === 'not-allowed' || errCode === 'service-not-allowed' || errCode === 'audio-capture') say('blocked', true);
@@ -108,7 +130,7 @@
       else if (errCode && errCode !== 'aborted') say('fail', true);
       else say('stopped');
     };
-    try { rec.start(); on = true; mic.classList.add('on'); say('listening'); } catch (e) { say('fail', true); }
+    try { rec.start(); on = true; mic.classList.add('on'); say('listening'); } catch (e) { say('fail', true); diag('start: ' + (e && e.message || e)); }
   }
   document.querySelectorAll('.lang button').forEach(function (b) { b.addEventListener('click', function () { var was = on; stop(); setLang(b.dataset.l); if (was) setTimeout(start, 300); }); });
   mic.addEventListener('click', start);
@@ -122,12 +144,19 @@
   $('send').addEventListener('click', function () {
     stop();
     var text = box.value.trim(); if (!text) { say('start'); return; }
-    if (!window.opener || window.opener.closed || !back) { say('noopener', true); return; }
-    try { window.opener.postMessage({ erssMic: 1, id: target, lang: lang, text: text }, back); window.close(); }
-    catch (e) { say('noopener', true); }
+    var posted = false, btn = $('send');
+    try { if (window.opener && !window.opener.closed && back && key) { window.opener.postMessage({ erssMic: 1, k: key, id: target, lang: lang, text: text }, back); posted = true; } } catch (e) { posted = false; }
+    if (!relay || !key) { if (posted) { say('sent'); setTimeout(function () { window.close(); }, 600); } else say('sendfail', true); return; }
+    btn.disabled = true; say('sending');
+    var done = function () { say('sent'); setTimeout(function () { window.close(); }, 1500); };
+    var fail = function () { btn.disabled = false; say('sendfail', true); };
+    fetch(relay, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ k: key, lang: lang, text: text }) })
+      .then(function (r) { return r.json().catch(function () { return { ok: posted }; }); })
+      .then(function (r) { if ((r && r.ok) || posted) done(); else fail(); })
+      .catch(function () { if (posted) done(); else fail(); });
   });
-  setLang(lang); say('start');
-  if (SR) start(); else say('nosupport', true);
+  setLang(lang); say('start'); diag();
+  if (!SR) say('nosupport', true);
 })();
 </script>
 </body>
