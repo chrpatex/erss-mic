@@ -93,7 +93,8 @@
 
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition, rec = null, on = false, errCode = '';
   function setLang(l) { lang = l; document.querySelectorAll('.lang button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.l === l ? 'true' : 'false'); }); }
-  function stop() { if (rec) try { rec.stop(); } catch (e) {} }
+  var live = false;
+  function stop() { want = false; if (rec && live) { try { rec.stop(); } catch (e) {} } else if (on) finish(); }
   var D = { last: '' };
   function diag(x) { if (x) D.last = x; var ua = navigator.userAgent, b = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox\//.test(ua) ? 'Firefox' : /Safari\//.test(ua) ? 'Safari' : 'Other';
     $('diag').textContent = [b, SR ? 'speech:yes' : 'speech:NO', window.isSecureContext ? 'secure' : 'NOT-secure', (window.origin === 'null' ? 'sandboxed' : 'normal'), D.perm ? 'mic:' + D.perm : '', D.last].filter(Boolean).join(' \u00b7 '); }
@@ -110,38 +111,50 @@
     }
     return listen();
   }
+  /* One sentence at a time (continuous = false): each phone sends its own kind of partial results, but the
+     final result of a single sentence is reliable everywhere. When a sentence ends we keep its final text and
+     start listening again until the person presses the mic to stop. */
+  var want = false, misses = 0, gotAny = false;
+  var norm = function (x) { return String(x || '').replace(/\s+/g, ' ').trim(); };
+  var join = function (a, b) { a = String(a || ''); b = norm(b); if (!b) return a; return a && !/\s$/.test(a) ? a + ' ' + b : a + b; };
+  function merge(a, b) {
+    if (!a) return b; if (!b) return a;
+    if (b.indexOf(a) === 0) return b; if (a.indexOf(b) === 0) return a;
+    var A = a.split(' '), B = b.split(' ');
+    for (var k = Math.min(A.length, B.length); k > 0; k--) if (A.slice(-k).join(' ') === B.slice(0, k).join(' ')) return A.concat(B.slice(k)).join(' ');
+    return a + ' ' + b;
+  }
+  function finish() {
+    on = false; want = false; mic.classList.remove('on');
+    if (errCode === 'not-allowed' || errCode === 'service-not-allowed' || errCode === 'audio-capture') say('blocked', true);
+    else if (errCode === 'no-speech' && !gotAny) say('nospeech', true);
+    else if (errCode && errCode !== 'aborted' && errCode !== 'no-speech') say('fail', true);
+    else say('stopped');
+    gotAny = false;
+  }
   function listen() {
-    errCode = '';
-    rec = new SR(); rec.lang = lang === 'ur' ? 'ur-PK' : 'en-US'; rec.continuous = true; rec.interimResults = true;
-    var base = box.value;
-    /* Rebuild this session's text from ALL results every time. Android Chrome re-sends the growing sentence
-       ("A", "A B", "A B C") as separate results, so a piece that starts with the previous one replaces it. */
-    var sess = '';
-    var norm = function (x) { return String(x || '').replace(/\s+/g, ' ').trim(); };
-    var join = function (a, b) { a = String(a || ''); b = norm(b); if (!b) return a; return a && !/\s$/.test(a) ? a + ' ' + b : a + b; };
-    rec.onresult = function (e) {
-      var parts = [];
-      for (var i = 0; i < e.results.length; i++) {
-        var tx = norm(e.results[i][0].transcript); if (!tx) continue;
-        var prev = parts.length ? parts[parts.length - 1] : '';
-        if (prev && tx.indexOf(prev) === 0) parts[parts.length - 1] = tx;
-        else if (prev && prev.indexOf(tx) === 0) continue;
-        else parts.push(tx);
-      }
-      sess = parts.join(' ');
-      box.value = join(base, sess); fixDir();
+    errCode = ''; want = true; on = true; mic.classList.add('on');
+    var r1 = new SR(); rec = r1; r1.lang = lang === 'ur' ? 'ur-PK' : 'en-US'; r1.continuous = false; r1.interimResults = true; r1.maxAlternatives = 1;
+    var base = box.value, utt = '';
+    r1.onresult = function (e) {
+      var all = '';
+      for (var i = 0; i < e.results.length; i++) all = merge(all, norm(e.results[i][0].transcript));
+      utt = all; box.value = join(base, utt); fixDir();
     };
-    rec.onerror = function (e) { errCode = e.error || 'x'; diag('error: ' + errCode); };
-    rec.onaudiostart = function () { diag('hearing audio'); };
-    rec.onstart = function () { diag('started ' + rec.lang); };
-    rec.onend = function () {
-      on = false; mic.classList.remove('on'); box.value = join(base, sess); fixDir();
-      if (errCode === 'not-allowed' || errCode === 'service-not-allowed' || errCode === 'audio-capture') say('blocked', true);
-      else if (errCode === 'no-speech') say('nospeech', true);
-      else if (errCode && errCode !== 'aborted') say('fail', true);
-      else say('stopped');
+    r1.onerror = function (e) { errCode = e.error || 'x'; diag('error: ' + errCode); };
+    r1.onaudiostart = function () { diag('hearing audio'); };
+    r1.onstart = function () { live = true; diag('started ' + r1.lang); };
+    r1.onend = function () {
+      live = false;
+      if (rec !== r1) return;
+      box.value = join(base, utt); fixDir();
+      if (utt) { misses = 0; gotAny = true; } else if (errCode === 'no-speech' || !errCode) misses++;
+      var fatal = errCode === 'not-allowed' || errCode === 'service-not-allowed' || errCode === 'audio-capture' || errCode === 'network' || errCode === 'language-not-supported';
+      if (want && !fatal && misses < 2) { setTimeout(function () { if (want) listen(); }, 250); return; }
+      if (misses >= 2 && !errCode) errCode = 'no-speech';
+      misses = 0; finish();
     };
-    try { rec.start(); on = true; mic.classList.add('on'); say('listening'); } catch (e) { say('fail', true); diag('start: ' + (e && e.message || e)); }
+    try { r1.start(); say('listening'); } catch (e) { want = false; finish(); say('fail', true); diag('start: ' + (e && e.message || e)); }
   }
   document.querySelectorAll('.lang button').forEach(function (b) { b.addEventListener('click', function () { var was = on; stop(); setLang(b.dataset.l); if (was) setTimeout(start, 300); }); });
   mic.addEventListener('click', start);
