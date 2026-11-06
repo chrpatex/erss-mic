@@ -1,0 +1,17 @@
+{
+  "name": "Patex ERSS - Employee Relations & Support",
+  "short_name": "ERSS",
+  "description": "Patex employee requests, complaints and HR replies",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FAF7F2",
+  "theme_color": "#5A3A26",
+  "lang": "ur",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
