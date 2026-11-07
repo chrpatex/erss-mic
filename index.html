@@ -32,14 +32,24 @@ iframe{position:fixed;inset:0;width:100%;height:100%;border:0}
 var f=document.getElementById("app");f.addEventListener("load",function(){document.getElementById("load").style.display="none"});
 if(!navigator.onLine){f.style.display="none";document.getElementById("load").style.display="none";document.getElementById("off").style.display="block"}
 
-var DP=null,box=document.getElementById("inst"),standalone=window.matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
-var ios=/iphone|ipad|ipod/i.test(navigator.userAgent);
+var DP=null,box=document.getElementById("inst"),go=document.getElementById("instGo"),msg=document.getElementById("instMsg");
+var ua=navigator.userAgent,standalone=window.matchMedia("(display-mode: standalone)").matches||navigator.standalone===true;
+var ios=/iphone|ipad|ipod/i.test(ua),android=/android/i.test(ua),sam=/SamsungBrowser/i.test(ua);
+var inApp=/; wv\)|WhatsApp|FBAN|FBAV|Instagram|Line\//i.test(ua),chrome=android&&/Chrome\//.test(ua)&&!inApp&&!sam&&!/OPR|EdgA|MiuiBrowser|UCBrowser|YaBrowser/i.test(ua);
+var iosSafari=ios&&/Safari/.test(ua)&&!/CriOS|FxiOS|EdgiOS|WhatsApp|FBAN|Instagram/i.test(ua);
+var MODE="how";
 function showInst(){if(!standalone)box.style.display="flex"}
-window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();DP=e;showInst()});
+function setup(){if(DP){MODE="prompt";return}
+ if(android&&!chrome&&!sam){MODE="chrome";msg.innerHTML=/WhatsApp/i.test(ua)?"&#1740;&#1729; &#1604;&#1606;&#1705; WhatsApp &#1705;&#1746; &#1575;&#1606;&#1583;&#1585; &#1705;&#1726;&#1604;&#1575; &#1729;&#1746;&#1748; &#1575;&#1606;&#1587;&#1657;&#1575;&#1604; &#1705;&#1746; &#1604;&#1740;&#1746; Chrome &#1605;&#1740;&#1722; &#1705;&#1726;&#1608;&#1604;&#1740;&#1722;":"&#1740;&#1729; &#1576;&#1585;&#1575;&#1572;&#1586;&#1585; &#1575;&#1740;&#1662; &#1575;&#1606;&#1587;&#1657;&#1575;&#1604; &#1606;&#1729;&#1740;&#1722; &#1705;&#1585;&#1578;&#1575;&#1748; Chrome &#1605;&#1740;&#1722; &#1705;&#1726;&#1608;&#1604;&#1740;&#1722;";go.innerHTML="Chrome &#1605;&#1740;&#1722; &#1705;&#1726;&#1608;&#1604;&#1740;&#1722;";return}
+ go.innerHTML="&#1591;&#1585;&#1740;&#1602;&#1729; &#1583;&#1740;&#1705;&#1726;&#1740;&#1722;";MODE="how"}
+window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();DP=e;MODE="prompt";showInst()});
 window.addEventListener("appinstalled",function(){box.style.display="none"});
-document.getElementById("instGo").onclick=function(){if(DP){DP.prompt();DP.userChoice.then(function(){DP=null;box.style.display="none"})}else if(ios){document.getElementById("instMsg").innerHTML="Safari &#1605;&#1740;&#1722; &#1606;&#1740;&#1670;&#1746; Share Share &#9099;#11014; &#1583;&#1576;&#1575;&#1574;&#1740;&#1722;&#1548; &#1662;&#1726;&#1585; Add to Home Screen"}else{document.getElementById("instMsg").innerHTML="Chrome &#1705;&#1575; &#8942; &#1605;&#1740;&#1606;&#1608; &#1705;&#1726;&#1608;&#1604;&#1740;&#1722; &#8592; Install app / Add to Home screen"}};
+go.onclick=function(){
+ if(MODE==="prompt"&&DP){DP.prompt();DP.userChoice.then(function(){DP=null;box.style.display="none"});return}
+ if(MODE==="chrome"){location.href="intent://"+location.host+location.pathname+"#Intent;scheme=https;package=com.android.chrome;end";return}
+ msg.innerHTML=ios?(iosSafari?"Safari &#1605;&#1740;&#1722; &#1606;&#1740;&#1670;&#1746; Share &#11014; &#1583;&#1576;&#1575;&#1574;&#1740;&#1722;&#1548; &#1662;&#1726;&#1585; Add to Home Screen":"&#1740;&#1729; &#1604;&#1606;&#1705; Safari &#1605;&#1740;&#1722; &#1705;&#1726;&#1608;&#1604;&#1740;&#1722;&#1548; &#1662;&#1726;&#1585; Share &#11014; &#8592; Add to Home Screen"):sam?"&#1606;&#1740;&#1670;&#1746; &#9776; &#1605;&#1740;&#1606;&#1608; &#1705;&#1726;&#1608;&#1604;&#1740;&#1722;&#1548; &#1662;&#1726;&#1585; Add page to &#8592; Home screen &#1583;&#1576;&#1575;&#1574;&#1740;&#1722;":"Chrome &#1705;&#1575; &#8942; &#1605;&#1740;&#1606;&#1608; &#1705;&#1726;&#1608;&#1604;&#1740;&#1722;&#1548; &#1662;&#1726;&#1585; Install app &#1740;&#1575; Add to Home screen &#1583;&#1576;&#1575;&#1574;&#1740;&#1722;"};
 document.getElementById("instX").onclick=function(){box.style.display="none"};
-if(ios&&!standalone)showInst();
+setTimeout(function(){if(!DP)setup();showInst()},1500);
 if("serviceWorker" in navigator){navigator.serviceWorker.register("sw.js").catch(function(){})}
 </script>
 </body>
